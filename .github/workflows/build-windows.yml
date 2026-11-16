@@ -1,0 +1,75 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:        # Actions tab -> "Build Windows EXE" -> Run workflow
+  push:
+    tags: ["v*"]            # git tag v0.1.0 && git push --tags -> also creates a Release
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Build GUI exe
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name AIMusicGenerator --paths src run_app.py
+      - name: Build CLI exe
+        run: pyinstaller --noconfirm --onefile --console --name AIMusicGenerator-cli --paths src run_app.py
+      - name: Smoke test the CLI exe
+        run: .\dist\AIMusicGenerator-cli.exe -g all --bars 8 --seed 1 -o smoke_output
+      - name: Package zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item dist\AIMusicGenerator.exe, dist\AIMusicGenerator-cli.exe, README.md, LICENSE release\
+          Compress-Archive -Path release\* -DestinationPath AIMusicGenerator-windows.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AIMusicGenerator-windows
+          path: AIMusicGenerator-windows.zip
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AIMusicGenerator-windows.zip
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Smoke test CLI (generates a song)
+        run: python run_app.py -g all --bars 8 --seed 1 -o ci_output
+      - name: Verify GUI module imports (tkinter available)
+        run: python -c "import sys; sys.path.insert(0,'src'); import aimusicgen.gui"
