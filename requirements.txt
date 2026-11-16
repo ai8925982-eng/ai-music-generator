@@ -1,0 +1,3 @@
+numpy>=1.24
+# Optional: read mp3/flac/ogg vocal files (WAV works without it)
+# soundfile>=0.12
