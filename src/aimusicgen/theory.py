@@ -14,7 +14,18 @@ SCALES = {
     "pentatonic_minor": [0, 3, 5, 7, 10],
     "blues": [0, 3, 5, 6, 7, 10],
     "harmonic_minor": [0, 2, 3, 5, 7, 8, 11],
+    # Isan (Thai north-eastern) pentatonic modes used for phin / khaen / wot
+    "isan_noi": [0, 2, 5, 7, 9],   # C D F G A  (lai noi flavour)
+    "isan_yai": [0, 3, 5, 7, 10],  # C Eb F G Bb (lai yai flavour, = minor pentatonic)
 }
+
+
+def pent_for(scale: str) -> str:
+    """Pentatonic scale that fits `scale` (minor-ish -> minor pentatonic, else major)."""
+    steps = SCALES[scale]
+    if 3 in steps and 4 not in steps:
+        return "pentatonic_minor"
+    return "pentatonic_major"
 
 CHORD_TYPES = {
     "maj": [0, 4, 7],
@@ -55,7 +66,7 @@ def degree_to_chord(root_pc: int, scale: str, degree: int, seventh: bool = False
     steps = SCALES[scale]
     if len(steps) < 7:
         # fall back to the parent major/minor for pentatonic/blues scales
-        steps = SCALES["minor"] if scale in ("pentatonic_minor", "blues") else SCALES["major"]
+        steps = SCALES["major"] if 4 in steps else SCALES["minor"]
     idx = (degree - 1) % 7
     chord_root = (root_pc + steps[idx]) % 12
     third = (steps[(idx + 2) % 7] - steps[idx]) % 12

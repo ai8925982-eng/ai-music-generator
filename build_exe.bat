@@ -1,10 +1,15 @@
 @echo off
-REM Build standalone Windows .exe files (needs setup_windows.bat run once).
+REM Build the standalone Windows programs on your own PC (run setup_windows.bat once first).
 cd /d "%~dp0"
 call .venv\Scripts\activate.bat
-pip install pyinstaller
-pyinstaller --noconfirm --clean --onefile --windowed --name AIMusicGenerator --paths src run_app.py
-pyinstaller --noconfirm --onefile --console --name AIMusicGenerator-cli --paths src run_app.py
+pip install pyinstaller soundfile numpy
+set OPTS=--noconfirm --paths src --collect-all soundfile --collect-submodules aimusicgen
+pyinstaller %OPTS% --clean --onefile --windowed --name AIMusicGenerator run_app.py
+pyinstaller %OPTS% --onedir --windowed --name AIMusicGenerator-portable run_app.py
+pyinstaller %OPTS% --onefile --console --name AIMusicGenerator-cli run_app.py
 echo.
-echo Done. Find the programs in the "dist" folder.
+echo Done. In the "dist" folder:
+echo   AIMusicGenerator.exe              single-file program (double-click)
+echo   AIMusicGenerator-portable\        folder version, starts faster (copy the whole folder anywhere / USB)
+echo   AIMusicGenerator-cli.exe          command-line version
 pause

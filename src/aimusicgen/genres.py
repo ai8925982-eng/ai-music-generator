@@ -125,6 +125,15 @@ GENRES: dict[str, Genre] = {
         0.0, "sub", "pad", 0.2, (64, 91), True, "bell", "pad",
         extra={"no_drums": True},
     ),
+    # Isan indie: phin, khaen, wot, pong lang + guitar, piano, synth, drums, bass, percussion.
+    # Layers are built in composer._isan_layers (extra["isan"]).
+    "isan": Genre(
+        "isan", (92, 118), ("pentatonic_minor", "isan_yai", "isan_noi", "pentatonic_major"),
+        ((1, 7, 6, 7), (1, 4, 1, 5), (6, 7, 1, 1), (1, 3, 7, 4)),
+        _g("x.....x...x....."), _g("....x.......x..."), _g("x.x.x.x.x.x.x.x."),
+        0.06, "syncopated", "pad", 0.5, (55, 84), False, "phin", "khaen", "bass",
+        extra={"isan": True},
+    ),
     "metal": Genre(
         "metal", (130, 180), ("phrygian", "minor", "harmonic_minor"),
         ((1, 2, 1, 7), (1, 6, 7, 1), (1, 1, 4, 5)),
@@ -139,6 +148,7 @@ GENRE_NAMES = sorted(GENRES)
 def get_genre(name: str, rng=None) -> Genre:
     """Return a genre profile. 'all' picks one at random (needs an rng)."""
     key = name.lower().strip()
+    key = {"isan_indie": "isan", "อีสาน": "isan", "อีสานอินดี้": "isan", "isaan": "isan"}.get(key, key)
     if key in ("all", "random", "any"):
         if rng is None:
             import random as _r

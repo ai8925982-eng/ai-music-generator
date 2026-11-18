@@ -88,3 +88,48 @@ def test_vocal_is_preserved(tmp_path):
 def test_bad_mode():
     with pytest.raises(ValueError):
         generate(GenerateOptions(mode="nope"))
+
+
+def make_phrased_vocal(path, bpm=96, start=1.3, sr=44100):
+    """A minor phrases: 2 bars of singing, 1 bar of rest, repeated; starts off the downbeat of the file."""
+    spb = 60 / bpm
+    phrase = [69, 72, 71, 69, 67, 64, 67, 69, 72, 74, 72, 69, 71, 69, 67, 64]
+    sig = np.zeros(int(sr * (start + spb * 4 * 12 + 2)))
+    t0 = start
+    for _ in range(4):
+        for n in phrase:
+            d = int(spb / 2 * sr)
+            t = np.arange(d) / sr
+            f = 440 * 2 ** ((n - 69) / 12)
+            s = (np.sin(2 * np.pi * f * t) + 0.3 * np.sin(4 * np.pi * f * t)) * np.minimum(1, t * 60) * np.minimum(1, (d / sr - t) * 60) * 0.4
+            a = int(t0 * sr)
+            sig[a:a + d] += s[:len(sig) - a]
+            t0 += spb / 2
+        t0 += spb * 4
+    write_wav(path, sig, sr)
+    return start
+
+
+def test_isan_has_all_instruments(tmp_path):
+    song = compose("isan", seed=4, bars=16)
+    names = {t.name for t in song.tracks}
+    assert {"Phin", "Khaen", "Wot", "Guitar", "Piano", "Synth", "Drums", "Bass"} <= names
+
+
+def test_isan_fits_vocal(tmp_path):
+    from aimusicgen.vocal import build_guide
+    vp = tmp_path / "v.wav"
+    start = make_phrased_vocal(vp)
+    res = generate(GenerateOptions(genre="isan", output_dir=str(tmp_path / "o"), seed=9, vocal_path=str(vp)))
+    v = res.vocal
+    assert abs(res.song.bpm - 96) < 1.5                      # tempo locked to the vocal
+    assert v.key_name == "A minor"
+    assert abs(res.song.offset_s - start) < 0.1              # bar line aligned to the vocal
+    guide = build_guide(v, res.song.bpm, res.song.bars, res.song.offset_s)
+    spb = 60 / res.song.bpm
+    for name in ("Wot", "Pong"):                             # melodic parts stay out of the singer's way
+        tr = [t for t in res.song.tracks if t.name == name][0]
+        hits = sum(1 for n in tr.notes if guide.activity[int((n.start - res.song.offset_s / spb) * 2)])
+        assert hits == 0
+    audio, _ = read_audio(res.audio_path)
+    assert np.abs(audio).max() <= 1.0

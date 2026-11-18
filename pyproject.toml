@@ -9,7 +9,7 @@ description = "AI Music Generator - audio + MIDI music generation with vocal pre
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["numpy>=1.24"]
+dependencies = ["numpy>=1.24", "soundfile>=0.12.1"]
 
 [project.optional-dependencies]
 audio = ["soundfile>=0.12"]

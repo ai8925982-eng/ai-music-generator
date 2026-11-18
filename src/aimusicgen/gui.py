@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import queue
 import sys
@@ -33,7 +34,7 @@ class App(tk.Tk):
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
 
-        self.v_genre = tk.StringVar(value="all")
+        self.v_genre = tk.StringVar(value="isan")
         self.v_mode = tk.StringVar(value="audio_midi")
         self.v_vocal = tk.StringVar()
         self.v_out = tk.StringVar(value=str(Path.home() / "Music" / "AIMusicGenerator"))
@@ -46,6 +47,10 @@ class App(tk.Tk):
         self.v_lead = tk.BooleanVar(value=True)
         self.v_stems = tk.BooleanVar(value=False)
         self.v_duck = tk.DoubleVar(value=4.0)
+        self.v_shift = tk.DoubleVar(value=0.0)
+        self.v_sf = tk.StringVar(value="auto")
+        self._load_settings()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         r = 0
         ttk.Label(frm, text="Genre").grid(row=r, column=0, sticky="w", **pad)
@@ -65,9 +70,16 @@ class App(tk.Tk):
         ttk.Entry(vf, textvariable=self.v_vocal).grid(row=0, column=0, sticky="ew")
         ttk.Button(vf, text="Browse...", command=self.pick_vocal).grid(row=0, column=1, padx=4)
         ttk.Button(vf, text="Clear", command=lambda: self.v_vocal.set("")).grid(row=0, column=2)
+        self.btn_analyse = ttk.Button(vf, text="Analyse vocal", command=self.on_analyse)
+        self.btn_analyse.grid(row=0, column=3, padx=4)
         r += 1
         ttk.Label(frm, text="(vocal stays untouched; music is generated around it, in its tempo & key)",
                   foreground="#666").grid(row=r, column=1, sticky="w", padx=8)
+        ttk.Label(sf, text="SoundFont (.sf2)").grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Entry(sf, textvariable=self.v_sf, width=34).grid(row=4, column=2, columnspan=3, sticky="we")
+        ttk.Button(sf, text="Browse", command=self._pick_sf).grid(row=4, column=5, sticky="w")
+        ttk.Label(sf, text="auto = first file in the soundfonts folder, none = built-in sounds", foreground="#666").grid(
+            row=5, column=0, columnspan=6, sticky="w")
         r += 1
 
         sf = ttk.LabelFrame(frm, text="Settings (leave blank / auto for automatic)", padding=8)
@@ -91,6 +103,9 @@ class App(tk.Tk):
             row=2, column=2, sticky="w")
         ttk.Checkbutton(sf, text="Lead melody (no vocal)", variable=self.v_lead).grid(row=2, column=3, columnspan=2, sticky="w")
         ttk.Checkbutton(sf, text="Export stems", variable=self.v_stems).grid(row=2, column=5, sticky="w")
+        ttk.Label(sf, text="Shift music (ms)").grid(row=3, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Spinbox(sf, from_=-1000, to=1000, increment=10, textvariable=self.v_shift, width=7).grid(row=3, column=2, sticky="w")
+        ttk.Label(sf, text="(+ = music later; use if the beat feels off)", foreground="#666").grid(row=3, column=3, columnspan=3, sticky="w")
         r += 1
 
         ttk.Label(frm, text="Output folder").grid(row=r, column=0, sticky="w", **pad)
@@ -155,11 +170,75 @@ class App(tk.Tk):
             scale=None if self.v_scale.get() == "auto" else self.v_scale.get(),
             seed=int(seed) if seed else None, mode=self.v_mode.get(), vocal_path=vocal,
             lead=(self.v_lead.get() if vocal is None else False), export_stems=self.v_stems.get(),
-            duck_db=float(self.v_duck.get()),
+            duck_db=float(self.v_duck.get()), grid_shift_ms=float(self.v_shift.get()),
+            soundfont=self.v_sf.get().strip() or "none",
         )
 
+    def _pick_sf(self) -> None:
+        f = filedialog.askopenfilename(filetypes=[("SoundFont", "*.sf2")])
+        if f:
+            self.v_sf.set(f)
+
     # ---- actions ----
+    # ---- remembered settings (portable: stored next to the user profile) ----
+    _KEYS = ("genre", "mode", "out", "name", "bars", "bpm", "key", "scale", "lead", "stems", "duck", "shift", "sf")
+
+    def _settings_file(self) -> Path:
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        return Path(base) / "AIMusicGenerator" / "settings.json"
+
+    def _vars(self) -> dict:
+        return {"genre": self.v_genre, "mode": self.v_mode, "out": self.v_out, "name": self.v_name,
+                "bars": self.v_bars, "bpm": self.v_bpm, "key": self.v_key, "scale": self.v_scale,
+                "lead": self.v_lead, "stems": self.v_stems, "duck": self.v_duck, "shift": self.v_shift, "sf": self.v_sf}
+
+    def _load_settings(self) -> None:
+        try:
+            data = json.loads(self._settings_file().read_text(encoding="utf-8"))
+            for k, var in self._vars().items():
+                if k in data:
+                    var.set(data[k])
+        except Exception:
+            pass  # first run / unreadable file: keep defaults
+
+    def _save_settings(self) -> None:
+        try:
+            f = self._settings_file()
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps({k: v.get() for k, v in self._vars().items()}, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _on_close(self) -> None:
+        self._save_settings()
+        self.destroy()
+
+    def on_analyse(self) -> None:
+        path = self.v_vocal.get().strip()
+        if not path:
+            messagebox.showinfo("Analyse vocal", "Choose a vocal file first.")
+            return
+        self.btn_analyse.configure(state="disabled")
+        self.write("Analysing vocal...")
+
+        def work() -> None:
+            try:
+                from .vocal import load_vocal
+                v = load_vocal(path)
+                msg = (f"Vocal {v.seconds:.1f}s | tempo {v.bpm or '?'} BPM "
+                       f"(confidence {v.tempo_conf:.0%}{'' if v.tempo_stable else ', drifting'}) | "
+                       f"key {v.key_name} ({v.key_confidence:.0%}) | {len(v.notes)} notes sung")
+                if v.tempo_conf < 0.4:
+                    msg += "\nTempo is uncertain: type the real BPM in the BPM box if you know it."
+                self.q.put(("log", msg))
+            except Exception:
+                self.q.put(("error", traceback.format_exc()))
+            self.q.put(("analysed",))
+
+        threading.Thread(target=work, daemon=True).start()
+
     def on_generate(self) -> None:
+        self._save_settings()
         try:
             opts = self.options()
         except ValueError as e:
@@ -187,10 +266,15 @@ class App(tk.Tk):
                 if item[0] == "progress":
                     self.progress["value"] = item[1] * 100
                     self.write(item[2])
+                elif item[0] == "log":
+                    self.write(item[1])
+                elif item[0] == "analysed":
+                    self.btn_analyse.configure(state="normal")
                 elif item[0] == "done":
                     self.finish(item[1])
                 elif item[0] == "error":
                     self.btn_gen.configure(state="normal")
+                    self.btn_analyse.configure(state="normal")
                     self.write(item[1])
                     messagebox.showerror("Error", item[1].strip().splitlines()[-1])
         except queue.Empty:
